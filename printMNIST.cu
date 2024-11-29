@@ -6,6 +6,7 @@
 #define HEIGHT 28
 
 
+
 void charBckgrndPrint(char *str, int rgb[3]){
   printf("\033[48;2;%d;%d;%dm", rgb[0], rgb[1], rgb[2]);
   printf("%s\033[0m",str);
