@@ -21,11 +21,12 @@ void MatrixInit(float *M, int n, int p) {
 void MatrixPrint(float *M, int n, int p) {
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < p; j++) {
-            printf("%f ", M[i * p + j]);
+            printf("%5.1f ", M[i * p + j]);
         }
         printf("\n");
     }
 }
+
 
 void MatrixAdd(float *M1, float *M2, float *Mout, int n, int p) {
     for (int i = 0; i < n; i++) {
@@ -83,54 +84,84 @@ __global__ void cudaMatrixMult(float *M1, float *M2, float *Mout, int n) {
     }
 }
 
-
 int main() {
-    int n = 3; // Taille de la matrice
-    float *M1, *M2, *Mout, *d_M1, *d_M2, *d_Mout;
+    int n = 1000, p = 1000; // Dimensions des matrices
 
-    // Allocation de mémoire sur l'hôte (CPU)
-    M1 = (float*)malloc(n * n * sizeof(float));
-    M2 = (float*)malloc(n * n * sizeof(float));
-    Mout = (float*)malloc(n * n * sizeof(float));
+    // Allocation mémoire sur le CPU
+    float *M1, *M2, *Mout_cpu, *Mout_gpu;
+    M1 = (float*)malloc(n * p * sizeof(float));
+    M2 = (float*)malloc(n * p * sizeof(float));
+    Mout_cpu = (float*)malloc(n * p * sizeof(float));
+    Mout_gpu = (float*)malloc(n * p * sizeof(float));
 
     // Initialisation des matrices
-    for (int i = 0; i < n * n; i++) {
-        M1[i] = 1.0f; // Remplir M1 avec 1
-        M2[i] = 2.0f; // Remplir M2 avec 2
-    }
+    MatrixInit(M1, n, p);
+    MatrixInit(M2, n, p);
 
-    // Allocation de mémoire sur le GPU
-    cudaMalloc(&d_M1, n * n * sizeof(float));
-    cudaMalloc(&d_M2, n * n * sizeof(float));
-    cudaMalloc(&d_Mout, n * n * sizeof(float));
+    // Affichage des matrices initiales
+    printf("Matrice M1 :\n");
+    //MatrixPrint(M1, n, p);
+    printf("\nMatrice M2 :\n");
+    //MatrixPrint(M2, n, p);
 
-    // Copier les matrices de l'hôte (CPU) vers le GPU
-    cudaMemcpy(d_M1, M1, n * n * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_M2, M2, n * n * sizeof(float), cudaMemcpyHostToDevice);
+    //////////////////////
+    // ADDITION - CPU   //
+    //////////////////////
+    clock_t start_cpu_add = clock();
+    MatrixAdd(M1, M2, Mout_cpu, n, p);
+    clock_t end_cpu_add = clock();
+    printf("\nRésultat addition CPU :\n");
+    //MatrixPrint(Mout_cpu, n, p);
+    printf("Temps addition CPU : %.4f secondes\n", (double)(end_cpu_add - start_cpu_add) / CLOCKS_PER_SEC);
 
-    // Configurer les dimensions des blocs et des grilles
-    dim3 blockDim(16, 16); // Taille d'un bloc (16 x 16 threads)
-    dim3 gridDim((n + 15) / 16, (n + 15) / 16); // Taille de la grille
+    //////////////////////
+    // ADDITION - GPU   //
+    //////////////////////
+    float *d_M1, *d_M2, *d_Mout;
+    cudaMalloc((void**)&d_M1, n * p * sizeof(float));
+    cudaMalloc((void**)&d_M2, n * p * sizeof(float));
+    cudaMalloc((void**)&d_Mout, n * p * sizeof(float));
 
-    // Lancer le kernel pour effectuer la multiplication
+    cudaMemcpy(d_M1, M1, n * p * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_M2, M2, n * p * sizeof(float), cudaMemcpyHostToDevice);
+
+    dim3 blockDim(16, 16);
+    dim3 gridDim((p + blockDim.x - 1) / blockDim.x, (n + blockDim.y - 1) / blockDim.y);
+
+    cudaMatrixAdd<<<gridDim, blockDim>>>(d_M1, d_M2, d_Mout, n, p);
+
+    cudaMemcpy(Mout_gpu, d_Mout, n * p * sizeof(float), cudaMemcpyDeviceToHost);
+
+    printf("\nRésultat addition GPU :\n");
+    //MatrixPrint(Mout_gpu, n, p);
+
+
+    //////////////////////////
+    // MULTIPLICATION - CPU //
+    //////////////////////////
+    clock_t start_cpu_mult = clock();
+    MatrixMult(M1, M2, Mout_cpu, n);
+    clock_t end_cpu_mult = clock();
+    printf("\nRésultat multiplication CPU :\n");
+    //MatrixPrint(Mout_cpu, n, n);
+    printf("Temps multiplication CPU : %.4f secondes\n", (double)(end_cpu_mult - start_cpu_mult) / CLOCKS_PER_SEC);
+
+    //////////////////////////
+    // MULTIPLICATION - GPU //
+    //////////////////////////
     cudaMatrixMult<<<gridDim, blockDim>>>(d_M1, d_M2, d_Mout, n);
 
-    // Copier le résultat du GPU vers l'hôte
-    cudaMemcpy(Mout, d_Mout, n * n * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(Mout_gpu, d_Mout, n * n * sizeof(float), cudaMemcpyDeviceToHost);
 
-    // Afficher la matrice résultante
-    printf("Matrice résultante (M1 * M2) :\n");
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            printf("%f ", Mout[i * n + j]);
-        }
-        printf("\n");
-    }
+    printf("\nRésultat multiplication GPU :\n");
+    //MatrixPrint(Mout_gpu, n, n);
 
-    // Libérer la mémoire
+
+    // Libération mémoire
     free(M1);
     free(M2);
-    free(Mout);
+    free(Mout_cpu);
+    free(Mout_gpu);
     cudaFree(d_M1);
     cudaFree(d_M2);
     cudaFree(d_Mout);
